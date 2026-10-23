@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<!--
+  band.html: "Our chapter in numbers" band for the pmiloc.org home page.
+  Lives in the membership-dashboard-v2 repo next to data.json, which the
+  v2 Apps Script refreshes daily. Embedded on StarChapter with an iframe.
+
+  What it does:
+    1. Loads data.json (no-cache, so the newest numbers always show).
+    2. Fills in the 4 numbers and the "Last updated" date.
+    3. Counts the numbers up once when the band scrolls into view.
+    4. If data.json can't load, hides the numbers and keeps only the button (HB-05).
+    5. Tells the page around it how tall it is, so the iframe can fit exactly.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMI Lakeshore Ontario Chapter in numbers</title>
+<style>
+  /* ---- Approved PMI colours ---- */
+  :root {
+    --purple: #4f17a9;
+    --purple-dark: #3a0f80;
+    --orange: #ff6110;
+    --orange-dark: #e04a00;
+    --cyan-text: #0a7f96;      /* darker cyan so small text passes contrast */
+    --ink: #1f1a2e;
+    --muted: #5b5670;
+    --line: #e6e3ef;
+    --tint: #faf9fd;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); }
+
+  .band { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #fff; }
+
+  /* ---- Purple header ---- */
+  .band-head {
+    background: var(--purple); color: #fff;
+    padding: 16px 24px;
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 16px;
+  }
+  .band-head h2 { margin: 0; font-size: 20px; font-weight: 700; }
+  .updated { font-size: 13px; color: #e3d9ff; }
+
+  /* ---- The 4 numbers: 4 across, 2 x 2 on tablet and phone (HB-06) ---- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .stat { padding: 22px 24px; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: 0; }
+  .value { font-size: 36px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .label { font-size: 14px; color: var(--muted); margin-top: 6px; }
+  .c-purple { color: var(--purple); }
+  .c-ink { color: var(--ink); }
+  .c-orange { color: var(--orange-dark); }
+  .c-cyan { color: var(--cyan-text); }
+
+  /* ---- Footer with the button ---- */
+  .band-foot {
+    border-top: 1px solid var(--line); background: var(--tint);
+    padding: 14px 24px;
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .band-foot p { margin: 0; font-size: 14px; color: #4a4560; }
+  .btn {
+    display: inline-block; background: var(--orange); color: #fff; text-decoration: none;
+    font-weight: 700; font-size: 15px; padding: 12px 20px; border-radius: 8px;
+  }
+  .btn:hover, .btn:focus-visible { background: var(--orange-dark); }
+  .btn:focus-visible { outline: 3px solid var(--purple); outline-offset: 2px; }
+
+  /* ---- If data can't load: hide numbers, keep the button ---- */
+  .band.no-data .stats, .band.no-data .updated { display: none; }
+
+  @media (max-width: 860px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stat:nth-child(2) { border-right: 0; }
+    .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  }
+  @media (max-width: 480px) {
+    .band-head, .stat, .band-foot { padding-left: 16px; padding-right: 16px; }
+    .value { font-size: 28px; }
+    .label { font-size: 13px; }
+    .btn { width: 100%; text-align: center; }
+  }
+  @media (prefers-reduced-motion: reduce) { .value { transition: none; } }
+</style>
+</head>
+<body>
+<section class="band" id="band" aria-labelledby="band-title">
+  <div class="band-head">
+    <h2 id="band-title">Our chapter in numbers</h2>
+    <span class="updated" id="updated"></span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="value c-purple" data-key="activeMembers">&nbsp;</div><div class="label">Active members</div></div>
+    <div class="stat"><div class="value c-ink" data-key="certifiedPercent" data-suffix="%">&nbsp;</div><div class="label">Hold a PMI certification</div></div>
+    <div class="stat"><div class="value c-orange" data-key="joinedThisYear">&nbsp;</div><div class="label" id="joined-label">Joined this year</div></div>
+    <div class="stat"><div class="value c-cyan" data-key="credentialTypes">&nbsp;</div><div class="label">PMI credentials held</div></div>
+  </div>
+
+  <div class="band-foot">
+    <p>Filter by industry, role, tenure and certification on the full dashboard.</p>
+    <!-- target="_top" opens the page in the whole browser tab, not inside the iframe -->
+    <a class="btn" href="https://pmiloc.org/Membership_Statistics" target="_top">Explore membership statistics</a>
+  </div>
+</section>
+
+<script>
+(function () {
+  var band = document.getElementById('band');
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Tell the StarChapter page how tall the band is (optional helper on that side).
+  function reportHeight() {
+    try { parent.postMessage({ pmilocBandHeight: Math.ceil(band.getBoundingClientRect().height) + 2 }, '*'); } catch (e) {}
+  }
+  window.addEventListener('resize', reportHeight);
+
+  function fmt(n, suffix) { return Math.round(n).toLocaleString('en-US') + (suffix || ''); }
+
+  // Count up from 0 to the real value over ~1.5 s, easing out (HB-09).
+  function countUp(el, target, suffix) {
+    if (reduceMotion) { el.textContent = fmt(target, suffix); return; }
+    var start = null, duration = 1500;
+    function step(t) {
+      if (start === null) start = t;
+      var p = Math.min((t - start) / duration, 1);
+      el.textContent = fmt(target * (1 - Math.pow(1 - p, 3)), suffix);
+      if (p < 1) requestAnimationFrame(step); else el.textContent = fmt(target, suffix);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function show(data) {
+    document.getElementById('updated').textContent = 'Updated daily · Last updated ' + data.lastUpdatedText;
+    if (data.joinedYear) document.getElementById('joined-label').textContent = 'Joined in ' + data.joinedYear;
+
+    var els = band.querySelectorAll('.value');
+    // Put the final numbers in straight away (screen readers and no-JS-animation fallback)…
+    Array.prototype.forEach.call(els, function (el) {
+      el.textContent = fmt(Number(data[el.getAttribute('data-key')]) || 0, el.getAttribute('data-suffix'));
+    });
+    reportHeight();
+
+    // …then replay them as a count-up the first time the band is on screen.
+    if (!('IntersectionObserver' in window) || reduceMotion) return;
+    var io = new IntersectionObserver(function (entries) {
+      if (!entries[0].isIntersecting) return;
+      io.disconnect();
+      Array.prototype.forEach.call(els, function (el) {
+        countUp(el, Number(data[el.getAttribute('data-key')]) || 0, el.getAttribute('data-suffix'));
+      });
+    }, { threshold: 0.3 });
+    io.observe(band);
+  }
+
+  fetch('data.json?v=' + Date.now(), { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (data) {
+      if (!data || !data.activeMembers) throw new Error('empty');
+      show(data);
+    })
+    .catch(function () { band.classList.add('no-data'); reportHeight(); });
+})();
+</script>
+</body>
+</html>
